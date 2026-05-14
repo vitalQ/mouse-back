@@ -55,7 +55,7 @@ There is currently no test target. At minimum, run `swift build` after edits. Fo
 
 ## Commit & Pull Request Guidelines
 
-No Git history is present, so use concise imperative commit messages, for example `Localize menu labels` or `Split mouse and keyboard event taps`.
+Use concise imperative commit messages, for example `Localize menu labels` or `Split mouse and keyboard event taps`.
 
 Pull requests should include:
 

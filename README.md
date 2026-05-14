@@ -124,6 +124,8 @@ scripts/reset-permissions.sh
 - `.github/workflows/ci.yml`：push 到 `main` 或打开 pull request 时运行 `swift build`。
 - `.github/workflows/release.yml`：推送 `v*` 标签时打包 `dist/MouseBack.app`，压缩为 `MouseBack.app.zip`，并上传到 GitHub Release。
 
+发布流程会把 tag 版本写入 `CFBundleShortVersionString`，例如 `v0.1.0` 会生成版本号为 `0.1.0` 的 App。当前发布包使用 ad-hoc 签名，未做 Developer ID 签名和 Apple notarization；从 GitHub Release 下载后，macOS 可能需要用户手动允许打开。
+
 发布新版本示例：
 
 ```sh
