@@ -15,7 +15,7 @@
 ## 环境要求
 
 - macOS 13 或更新版本。
-- Swift Package Manager。项目使用 `swift-tools-version: 6.3`，源码按 Swift 5 模式编译。
+- Swift Package Manager。项目使用 `swift-tools-version: 6.0`，源码按 Swift 5 模式编译。
 
 ## 运行
 
