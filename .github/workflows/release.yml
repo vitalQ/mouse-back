@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Package App
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Build app bundle
+        run: scripts/package-app.sh
+
+      - name: Create release archive
+        run: |
+          cd dist
+          ditto -c -k --keepParent MouseBack.app MouseBack.app.zip
+
+      - name: Upload release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/MouseBack.app.zip
+          generate_release_notes: true
