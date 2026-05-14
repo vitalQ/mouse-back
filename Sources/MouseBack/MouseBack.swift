@@ -16,12 +16,23 @@ struct MouseBack {
 }
 
 final class MouseBackApp: NSObject, NSApplicationDelegate {
+    private static let reverseMouseWheelDefaultsKey = "reverseMouseWheelEnabled"
+    private static let syntheticScrollEventUserData: Int64 = 0x4D425343524F4C4C
+
     private var mouseEventTap: CFMachPort?
     private var keyboardEventTap: CFMachPort?
     private var statusItem: NSStatusItem?
     private var statusMenuItem: NSMenuItem?
     private var accessibilityMenuItem: NSMenuItem?
     private var inputMonitoringMenuItem: NSMenuItem?
+    private var reverseMouseWheelMenuItem: NSMenuItem?
+    private var reverseMouseWheelEnabled: Bool = {
+        if UserDefaults.standard.object(forKey: reverseMouseWheelDefaultsKey) == nil {
+            return true
+        }
+
+        return UserDefaults.standard.bool(forKey: reverseMouseWheelDefaultsKey)
+    }()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         setupMenuBar()
@@ -49,6 +60,15 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
         let mappingMenuItem = NSMenuItem(title: "侧键 3/4 或 Control + 方向键", action: nil, keyEquivalent: "")
         mappingMenuItem.isEnabled = false
         menu.addItem(mappingMenuItem)
+
+        let reverseMouseWheelMenuItem = NSMenuItem(
+            title: "反转鼠标滚轮",
+            action: #selector(toggleReverseMouseWheel),
+            keyEquivalent: ""
+        )
+        menu.addItem(reverseMouseWheelMenuItem)
+        self.reverseMouseWheelMenuItem = reverseMouseWheelMenuItem
+        updateReverseMouseWheelMenuItem()
 
         menu.addItem(.separator())
 
@@ -97,6 +117,7 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
 
         let eventMask = (1 << CGEventType.otherMouseDown.rawValue)
             | (1 << CGEventType.otherMouseUp.rawValue)
+            | (1 << CGEventType.scrollWheel.rawValue)
 
         guard let eventTap = makeEventTap(eventMask: eventMask) else {
             return false
@@ -152,11 +173,14 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
         return true
     }
 
-    private func makeEventTap(eventMask: Int) -> CFMachPort? {
+    private func makeEventTap(
+        tap: CGEventTapLocation = .cgSessionEventTap,
+        eventMask: Int
+    ) -> CFMachPort? {
         let refcon = Unmanaged.passUnretained(self).toOpaque()
 
         return CGEvent.tapCreate(
-            tap: .cgSessionEventTap,
+            tap: tap,
             place: .headInsertEventTap,
             options: .defaultTap,
             eventsOfInterest: CGEventMask(eventMask),
@@ -180,6 +204,10 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
             return handleKeyEvent(type: type, event: event)
         }
 
+        if type == .scrollWheel {
+            return handleScrollWheelEvent(event: event)
+        }
+
         guard type == .otherMouseDown || type == .otherMouseUp else {
             return Unmanaged.passUnretained(event)
         }
@@ -199,6 +227,58 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
         }
 
         return nil
+    }
+
+    private func handleScrollWheelEvent(event: CGEvent) -> Unmanaged<CGEvent>? {
+        if event.getIntegerValueField(.eventSourceUserData) == Self.syntheticScrollEventUserData {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard reverseMouseWheelEnabled else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        guard !Self.isTrackpadScroll(event) else {
+            return Unmanaged.passUnretained(event)
+        }
+
+        postReversedScrollWheelEvent(from: event)
+        return nil
+    }
+
+    private static func isTrackpadScroll(_ event: CGEvent) -> Bool {
+        let phase = event.getIntegerValueField(.scrollWheelEventScrollPhase)
+        let momentumPhase = event.getIntegerValueField(.scrollWheelEventMomentumPhase)
+
+        return phase != 0 || momentumPhase != 0
+    }
+
+    private func postReversedScrollWheelEvent(from event: CGEvent) {
+        let verticalDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis1)
+        let horizontalDelta = event.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+
+        guard verticalDelta != 0 || horizontalDelta != 0 else {
+            return
+        }
+
+        let source = CGEventSource(stateID: .hidSystemState)
+        source?.userData = Self.syntheticScrollEventUserData
+
+        guard let scrollEvent = CGEvent(
+            scrollWheelEvent2Source: source,
+            units: .line,
+            wheelCount: 2,
+            wheel1: Int32(-verticalDelta),
+            wheel2: Int32(-horizontalDelta),
+            wheel3: 0
+        ) else {
+            return
+        }
+
+        scrollEvent.location = event.location
+        scrollEvent.flags = event.flags
+        scrollEvent.setIntegerValueField(.eventSourceUserData, value: Self.syntheticScrollEventUserData)
+        scrollEvent.post(tap: .cghidEventTap)
     }
 
     private func handleKeyEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
@@ -266,6 +346,16 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
         NSApplication.shared.terminate(nil)
     }
 
+    @objc private func toggleReverseMouseWheel() {
+        reverseMouseWheelEnabled.toggle()
+        UserDefaults.standard.set(reverseMouseWheelEnabled, forKey: Self.reverseMouseWheelDefaultsKey)
+        updateReverseMouseWheelMenuItem()
+    }
+
+    private func updateReverseMouseWheelMenuItem() {
+        reverseMouseWheelMenuItem?.state = reverseMouseWheelEnabled ? .on : .off
+    }
+
     @objc private func openPrivacySettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
         NSWorkspace.shared.open(url)
@@ -288,10 +378,12 @@ final class MouseBackApp: NSObject, NSApplicationDelegate {
         2. 输入监控
         允许应用捕获鼠标驱动发出的 Control + 左/右方向键。
 
+        菜单中的“反转鼠标滚轮”会单独处理普通鼠标滚轮方向，触控板滚动保持系统方向。建议在系统设置中保持“自然滚动”开启，再按需要打开或关闭这个菜单项。
+
         请在两个权限列表里添加并启用这个 App：
         \(appPath)
 
-        修改权限后，请在菜单里选择“重新检查权限”，或重启应用。
+        重新打包后 macOS 可能会把它识别为新的 App。如果功能失效，请重新添加权限，然后在菜单里选择“重新检查权限”，或重启应用。
         """
         alert.addButton(withTitle: "打开隐私设置")
         alert.addButton(withTitle: "确定")
