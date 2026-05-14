@@ -23,3 +23,17 @@ jobs:
 
       - name: Build
         run: swift build
+
+      - name: Build app bundle
+        run: scripts/package-app.sh
+
+      - name: Create app archive
+        run: |
+          cd dist
+          ditto -c -k --keepParent MouseBack.app MouseBack.app.zip
+
+      - name: Upload app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MouseBack.app
+          path: dist/MouseBack.app.zip
